@@ -127,7 +127,11 @@ void CaptureWindow::setMode(CaptureWindow::Mode mode)
     QVariantMap initialProperties = {// Set the parent in initialProperties to avoid having
                                      // the parent and window be null in Component.onCompleted
                                      {u"parent"_s, QVariant::fromValue(contentItem())}};
-    setSource(QUrl("%1/Gui/CaptureOverlay.qml"_L1.arg(SPECTACLE_QML_PATH)), initialProperties);
+    const bool fastOverlay = qEnvironmentVariableIsSet("SPECTACLE_LATENCY_EXPERIMENT")
+        && (qEnvironmentVariableIntValue("SPECTACLE_LATENCY_MODE") == 5 || qEnvironmentVariableIntValue("SPECTACLE_LATENCY_MODE") == 7);
+    setSource(QUrl((fastOverlay ? "%1/Gui/FastCaptureOverlay.qml"_L1 : "%1/Gui/CaptureOverlay.qml"_L1).arg(SPECTACLE_QML_PATH)), initialProperties);
+    if (fastOverlay)
+        setAnnotating(false);
 }
 
 bool CaptureWindow::accept()
@@ -212,7 +216,8 @@ void CaptureWindow::showEvent(QShowEvent *event)
 {
     SpectacleWindow::showEvent(event);
     syncGeometryWithScreen();
-    requestActivate();
+    if (!property("latencyPriming").toBool())
+        requestActivate();
 }
 
 void CaptureWindow::syncGeometryWithScreen()

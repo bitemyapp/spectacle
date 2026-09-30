@@ -114,6 +114,12 @@ public:
 
 public Q_SLOTS:
     void activate(const QStringList &arguments, const QString &workingDirectory);
+    // Workspace-only experiment hooks; registered on a separate D-Bus service.
+    void prepareLatencyExperiment();
+    void benchmarkCancel();
+    void benchmarkDrag(int x, int y, int width, int height);
+    QString benchmarkClipboardInfo();
+    void benchmarkReclaimMemory(bool clearImages, bool releaseGraphics, bool trimAllocator);
     void takeNewScreenshot(int captureMode = Settings::captureMode(),
                            int timeout = Settings::captureOnClick() ? -1 : Settings::captureDelay() * 1000,
                            bool includePointer = Settings::includePointer(),
@@ -163,6 +169,7 @@ private:
     std::unique_ptr<AnnotationDocument> m_annotationDocument = nullptr;
     StartMode m_startMode = StartMode::Gui;
     bool m_returnToViewer = false;
+    bool m_latencyPreparing = false;
     bool m_ocrExportInProgress = false;
     bool m_quitAfterOcr = false;
     QUrl m_screenCaptureUrl;

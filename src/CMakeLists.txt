@@ -155,6 +155,7 @@ qt_target_qml_sources(spectacle
     Gui/CaptureModeButtonsColumn.qml
     Gui/CaptureOptions.qml
     Gui/CaptureOverlay.qml
+    Gui/FastCaptureOverlay.qml
     Gui/CaptureSettingsColumn.qml
     Gui/CopyImageAction.qml
     Gui/CopyLocationAction.qml

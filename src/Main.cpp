@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QIcon>
 #include <QSessionManager>
+#include <QTimer>
 
 #include <KAboutData>
 #include <KCrash>
@@ -40,7 +41,15 @@ int main(int argc, char **argv)
     KLocalizedString::setApplicationDomain(QByteArrayLiteral("spectacle"));
     QCoreApplication::setOrganizationDomain(u"org.kde"_s);
 
-    KAboutData aboutData(u"spectacle"_s,
+    const bool experiment = qEnvironmentVariableIsSet("SPECTACLE_LATENCY_EXPERIMENT");
+    const int latencyMode = qEnvironmentVariableIntValue("SPECTACLE_LATENCY_MODE");
+    if (experiment && latencyMode > 0) {
+        app.setQuitOnLastWindowClosed(false);
+        // ExportManager releases a QEventLoopLocker after clipboard transfer.
+        // In a resident process that release must not trigger Qt's auto-quit.
+        QCoreApplication::setQuitLockEnabled(false);
+    }
+    KAboutData aboutData(experiment ? u"spectacleexperiment"_s : u"spectacle"_s,
                          i18n("Spectacle"),
                          QStringLiteral(SPECTACLE_VERSION),
                          i18n("KDE Screenshot Utility"),
@@ -92,7 +101,18 @@ int main(int argc, char **argv)
         auto spectacleCore = SpectacleCore::instance();
 
         QObject::connect(qApp, &QApplication::aboutToQuit, Settings::self(), &Settings::save);
-        QObject::connect(spectacleCore, &SpectacleCore::allDone, &app, &QCoreApplication::quit, Qt::QueuedConnection);
+        QObject::connect(
+            spectacleCore,
+            &SpectacleCore::allDone,
+            &app,
+            [&, spectacleCore] {
+                if (!experiment || latencyMode == 0) {
+                    app.quit();
+                } else {
+                    spectacleCore->prepareLatencyExperiment();
+                }
+            },
+            Qt::QueuedConnection);
 
         // fire it up
         spectacleCore->activate(app.arguments(), QDir::currentPath());
@@ -111,7 +131,18 @@ int main(int argc, char **argv)
     QObject::connect(&service, &KDBusService::activateActionRequested, spectacleCore, &SpectacleCore::activateAction);
 
     QObject::connect(&app, &QCoreApplication::aboutToQuit, Settings::self(), &Settings::save);
-    QObject::connect(spectacleCore, &SpectacleCore::allDone, &app, &QCoreApplication::quit, Qt::QueuedConnection);
+    QObject::connect(
+        spectacleCore,
+        &SpectacleCore::allDone,
+        &app,
+        [&, spectacleCore] {
+            if (!experiment || latencyMode == 0) {
+                app.quit();
+            } else {
+                spectacleCore->prepareLatencyExperiment();
+            }
+        },
+        Qt::QueuedConnection);
 
     // create the dbus connections
     SpectacleDBusAdapter *dbusAdapter = new SpectacleDBusAdapter(spectacleCore);
@@ -132,7 +163,13 @@ int main(int argc, char **argv)
                          Q_EMIT dbusAdapter->RecordingTaken(url.toLocalFile());
                      });
     QDBusConnection::sessionBus().registerObject(u"/"_s, spectacleCore);
-    QDBusConnection::sessionBus().registerService(u"org.kde.Spectacle"_s);
+    QDBusConnection::sessionBus().registerService(experiment ? u"org.kde.SpectacleExperiment"_s : u"org.kde.Spectacle"_s);
+    if (experiment) {
+        QDBusConnection::sessionBus().registerObject(u"/experiment"_s, spectacleCore, QDBusConnection::ExportAllSlots);
+        if (latencyMode >= 2) {
+            QTimer::singleShot(0, spectacleCore, &SpectacleCore::prepareLatencyExperiment);
+        }
+    }
 
     // fire it up
     spectacleCore->activate(app.arguments(), QDir::currentPath());

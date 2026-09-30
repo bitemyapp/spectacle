@@ -91,7 +91,12 @@ find_package(Wayland REQUIRED COMPONENTS Client)
 find_package(PlasmaWaylandProtocols REQUIRED)
 find_package(LayerShellQt REQUIRED)
 find_package(KPipeWire)
-find_package(OpenCV 4.7 REQUIRED core imgproc)
+# The OpenCV 5 config rejects a request for major version 4 even though the
+# APIs used here are compatible. Keep the minimum requirement explicitly.
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+if(OpenCV_VERSION VERSION_LESS "4.7")
+    message(FATAL_ERROR "Spectacle requires OpenCV 4.7 or newer")
+endif()
 find_package(PkgConfig REQUIRED)
 
 set_package_properties(KPipeWire PROPERTIES DESCRIPTION

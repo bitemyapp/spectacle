@@ -33,6 +33,7 @@
 #include <KMessageBox>
 #include <KNotification>
 #include <KStatusNotifierItem>
+#include <KSystemClipboard>
 #include <KWindowSystem>
 #include <KX11Extras>
 #include <LayerShellQt/Shell>
@@ -46,9 +47,14 @@
 #include <QDBusMessage>
 #include <QDir>
 #include <QDrag>
+#include <QElapsedTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QKeyEvent>
 #include <QKeySequence>
 #include <QMetaObject>
 #include <QMimeData>
+#include <QMouseEvent>
 #include <QMovie>
 #include <QObject>
 #include <QProcess>
@@ -62,6 +68,7 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QtMath>
+#include <malloc.h>
 #include <qobjectdefs.h>
 
 using namespace Qt::StringLiterals;
@@ -70,6 +77,18 @@ SpectacleCore *SpectacleCore::s_self = nullptr;
 static std::unique_ptr<KStatusNotifierItem> s_systemTrayIcon;
 
 static QList<KNotification *> notifications;
+
+static int latencyMode()
+{
+    return qEnvironmentVariableIsSet("SPECTACLE_LATENCY_EXPERIMENT") ? qEnvironmentVariableIntValue("SPECTACLE_LATENCY_MODE") : -1;
+}
+static QElapsedTimer latencyTimer;
+static void latencyTrace(const char *stage)
+{
+    if (latencyMode() >= 0 && latencyTimer.isValid()) {
+        qInfo().nospace() << "SPECTACLE_LATENCY stage=" << stage << " elapsed_ms=" << latencyTimer.nsecsElapsed() / 1000000.0;
+    }
+}
 
 SpectacleCore::SpectacleCore(QObject *parent)
     : QObject(parent)
@@ -202,18 +221,31 @@ SpectacleCore::SpectacleCore(QObject *parent)
         setVideoMode(false);
     });
     connect(imagePlatform, &ImagePlatform::newCroppableScreenshotTaken, this, [this](const QImage &image) {
+        latencyTrace("image_ready");
         InlineMessageModel::instance()->clear();
         setVideoMode(false);
         m_annotationDocument->clearAnnotations();
         m_annotationDocument->setBaseImage(image);
         setExportImage(image);
         ExportManager::instance()->updateTimestamp();
+        latencyTrace("base_image_ready");
         initCaptureWindows(CaptureWindow::Image);
+        latencyTrace("qml_ready");
+        auto window = m_captureWindows.front().get();
+        connect(
+            window,
+            &QQuickWindow::frameSwapped,
+            this,
+            [] {
+                latencyTrace("first_frame");
+            },
+            Qt::SingleShotConnection);
         SpectacleWindow::setTitleForAll(SpectacleWindow::Unsaved);
         SpectacleWindow::setVisibilityForAll(QWindow::FullScreen);
         // SelectionEditor::reset has to be delayed until after all the DPRs are correct on Wayland.
         connect(m_captureWindows.front().get(), &CaptureWindow::allExposed, //
                 SelectionEditor::instance(), &SelectionEditor::reset, Qt::SingleShotConnection);
+        latencyTrace("show_requested");
     });
 
     // The behavior happens to be very similar right now, so we use a shared base function
@@ -444,6 +476,7 @@ SpectacleCore::SpectacleCore(QObject *parent)
         // SelectionEditor::reset has to be delayed until after all the DPRs are correct on Wayland.
         connect(m_captureWindows.front().get(), &CaptureWindow::allExposed, //
                 SelectionEditor::instance(), &SelectionEditor::reset, Qt::SingleShotConnection);
+        latencyTrace("show_requested");
     });
 
     // set up the export manager
@@ -677,29 +710,32 @@ SpectacleCore::SpectacleCore(QObject *parent)
         ExportManager::instance()->setImage(image);
     }, Qt::QueuedConnection); // QueuedConnection to help prevent making the visible render lag.
 
-    // set up shortcuts
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->openAction(),
-                                            QList<QKeySequence>{
-                                                Qt::Key_Print,
-                                                // Default screenshot shortcut on Windows.
-                                                // Also for keyboards without a print screen key.
-                                                Qt::META | Qt::SHIFT | Qt::Key_S,
-                                            });
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->fullScreenAction(), Qt::SHIFT | Qt::Key_Print);
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->activeWindowAction(), Qt::META | Qt::Key_Print);
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->windowUnderCursorAction(), Qt::META | Qt::CTRL | Qt::Key_Print);
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->regionAction(), Qt::META | Qt::SHIFT | Qt::Key_Print);
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->currentScreenAction(), QList<QKeySequence>());
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->openWithoutScreenshotAction(), QList<QKeySequence>());
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->recordScreenAction(), Qt::META | Qt::ALT | Qt::Key_R);
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->recordWindowAction(), Qt::META | Qt::CTRL | Qt::Key_R);
-    KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->recordRegionAction(),
-                                            QList<QKeySequence>{
-                                                // Similar to region screenshot
-                                                Qt::META | Qt::SHIFT | Qt::Key_R,
-                                                // Also use Meta+R for now
-                                                Qt::META | Qt::Key_R,
-                                            });
+    // The experiment must not register or modify any real global shortcuts.
+    if (!qEnvironmentVariableIsSet("SPECTACLE_LATENCY_EXPERIMENT")) {
+        // set up shortcuts
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->openAction(),
+                                                QList<QKeySequence>{
+                                                    Qt::Key_Print,
+                                                    // Default screenshot shortcut on Windows.
+                                                    // Also for keyboards without a print screen key.
+                                                    Qt::META | Qt::SHIFT | Qt::Key_S,
+                                                });
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->fullScreenAction(), Qt::SHIFT | Qt::Key_Print);
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->activeWindowAction(), Qt::META | Qt::Key_Print);
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->windowUnderCursorAction(), Qt::META | Qt::CTRL | Qt::Key_Print);
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->regionAction(), Qt::META | Qt::SHIFT | Qt::Key_Print);
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->currentScreenAction(), QList<QKeySequence>());
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->openWithoutScreenshotAction(), QList<QKeySequence>());
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->recordScreenAction(), Qt::META | Qt::ALT | Qt::Key_R);
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->recordWindowAction(), Qt::META | Qt::CTRL | Qt::Key_R);
+        KGlobalAccel::self()->setGlobalShortcut(ShortcutActions::self()->recordRegionAction(),
+                                                QList<QKeySequence>{
+                                                    // Similar to region screenshot
+                                                    Qt::META | Qt::SHIFT | Qt::Key_R,
+                                                    // Also use Meta+R for now
+                                                    Qt::META | Qt::Key_R,
+                                                });
+    }
 
     connect(qApp, &QApplication::screenRemoved, this, [this](QScreen *screen) {
         // It's dangerous to erase from within a for loop, so we use std::find_if
@@ -870,6 +906,10 @@ qreal SpectacleCore::captureProgress() const
 
 void SpectacleCore::activate(const QStringList &arguments, const QString &workingDirectory)
 {
+    if (latencyMode() >= 0) {
+        latencyTimer.start();
+        latencyTrace("activate");
+    }
     if (m_videoPlatform->isRecording()) {
         // BUG: https://bugs.kde.org/show_bug.cgi?id=481471
         // TODO: find a way to support screenshot shortcuts while recording?
@@ -913,10 +953,14 @@ void SpectacleCore::activate(const QStringList &arguments, const QString &workin
     }
 
     if (parser.optionNames().size() > 0 || m_startMode != StartMode::Gui || !m_returnToViewer) {
-        // Delete windows if we have CLI options or not in GUI mode.
-        // We don't want to delete them otherwise because that will mess with the
-        // settings for PrintScreen key behavior.
-        deleteWindows();
+        // Preserve a hidden preloaded region UI in the isolated experiment.
+        const bool retain = latencyMode() >= 2 && m_startMode != StartMode::Gui && !m_captureWindows.empty();
+        if (!retain) {
+            // Delete windows if we have CLI options or not in GUI mode.
+            // We don't want to delete them otherwise because that will mess with the
+            // settings for PrintScreen key behavior.
+            deleteWindows();
+        }
     }
 
     // reset last region if it should not be remembered across restarts
@@ -1446,6 +1490,12 @@ CaptureModeModel::CaptureMode SpectacleCore::toCaptureMode(ImagePlatform::GrabMo
 
 bool SpectacleCore::isGuiNull() const
 {
+    if (latencyMode() >= 2 && m_startMode != StartMode::Gui) {
+        const auto windows = SpectacleWindow::instances();
+        return std::none_of(windows.begin(), windows.end(), [](const auto *w) {
+            return w->isVisible();
+        });
+    }
     return SpectacleWindow::instances().isEmpty();
 }
 
@@ -1485,6 +1535,18 @@ QQmlEngine *SpectacleCore::getQmlEngine()
 
 void SpectacleCore::initCaptureWindows(CaptureWindow::Mode mode)
 {
+    if (latencyMode() >= 2 && mode == CaptureWindow::Image && !m_captureWindows.empty()) {
+        const auto screens = qApp->screens();
+        const bool sameScreens = m_captureWindows.size() == static_cast<size_t>(screens.size())
+            && std::all_of(m_captureWindows.begin(), m_captureWindows.end(), [&screens](const auto &w) {
+                                     return screens.contains(w->screenToFollow());
+                                 });
+        if (sameScreens) {
+            m_captureWindows.front()->setAnnotating(false);
+            return;
+        }
+        m_captureWindows.clear();
+    }
     deleteWindows();
 
     // Allow the window to be transparent. Used for video recording UI.
@@ -1520,6 +1582,11 @@ void SpectacleCore::initViewerWindow(ViewerWindow::Mode mode)
 
 void SpectacleCore::deleteWindows()
 {
+    if (latencyMode() >= 3 && m_startMode != StartMode::Gui && !m_captureWindows.empty()) {
+        m_viewerWindow.reset();
+        SpectacleWindow::setVisibilityForAll(QWindow::Hidden);
+        return;
+    }
     m_viewerWindow.reset();
     m_captureWindows.clear();
 }
@@ -1638,3 +1705,134 @@ void SpectacleCore::activateAction(const QString &actionName, const QVariant &pa
 }
 
 #include "moc_SpectacleCore.cpp"
+
+void SpectacleCore::prepareLatencyExperiment()
+{
+    SpectacleWindow::setVisibilityForAll(QWindow::Hidden);
+    if (latencyMode() < 2 || m_latencyPreparing) {
+        return;
+    }
+    m_latencyPreparing = true;
+    if (latencyMode() == 2)
+        m_captureWindows.clear();
+    if (m_captureWindows.empty()) {
+        auto screen = qApp->primaryScreen();
+        QImage blank(screen->size() * screen->devicePixelRatio(), QImage::Format_ARGB32_Premultiplied);
+        blank.fill(Qt::black);
+        blank.setDevicePixelRatio(screen->devicePixelRatio());
+        m_annotationDocument->clearAnnotations();
+        m_annotationDocument->setBaseImage(blank);
+        initCaptureWindows(CaptureWindow::Image);
+        if (latencyMode() == 4 || latencyMode() == 5) {
+            // Initialize the scene graph offscreen once, without mapping an overlay.
+            for (const auto &window : m_captureWindows) {
+                window->create();
+                const QImage warmup = window->grabWindow();
+                qInfo() << "SPECTACLE_LATENCY_PREWARM" << warmup.size() << window->isVisible();
+            }
+        }
+        if (latencyMode() >= 6) {
+            // A transparent, non-interactive startup frame initializes the actual
+            // onscreen swapchain. The offscreen grab uses different resources.
+            for (const auto &window : m_captureWindows) {
+                window->setProperty("latencyPriming", true);
+                window->setFlag(Qt::WindowDoesNotAcceptFocus, true);
+                window->setOpacity(0);
+            }
+            connect(
+                m_captureWindows.front().get(),
+                &QQuickWindow::frameSwapped,
+                this,
+                [this] {
+                    SpectacleWindow::setVisibilityForAll(QWindow::Hidden);
+                    for (const auto &window : m_captureWindows) {
+                        window->setProperty("latencyPriming", false);
+                        window->setFlag(Qt::WindowDoesNotAcceptFocus, false);
+                        window->setOpacity(1);
+                    }
+                    m_latencyPreparing = false;
+                    qInfo() << "SPECTACLE_LATENCY_IDLE_READY";
+                },
+                Qt::SingleShotConnection);
+            SpectacleWindow::setVisibilityForAll(QWindow::FullScreen);
+            return;
+        }
+    }
+    SpectacleWindow::setVisibilityForAll(QWindow::Hidden);
+    m_latencyPreparing = false;
+    qInfo() << "SPECTACLE_LATENCY_IDLE_READY";
+}
+
+void SpectacleCore::benchmarkCancel()
+{
+    if (latencyMode() < 0)
+        return;
+    if (!m_captureWindows.empty()) {
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QKeyEvent release(QEvent::KeyRelease, Qt::Key_Escape, Qt::NoModifier);
+        QCoreApplication::sendEvent(m_captureWindows.front().get(), &press);
+        QCoreApplication::sendEvent(m_captureWindows.front().get(), &release);
+    }
+}
+
+void SpectacleCore::benchmarkDrag(int x, int y, int width, int height)
+{
+    if (latencyMode() < 0 || m_captureWindows.empty())
+        return;
+    auto window = m_captureWindows.front().get();
+    QPointF start(x, y), end(x + width, y + height);
+    auto send = [window](QEvent::Type type, const QPointF &p, Qt::MouseButton button, Qt::MouseButtons buttons) {
+        QMouseEvent event(type, p, window->mapToGlobal(p), button, buttons, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &event);
+    };
+    send(QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+    send(QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton);
+    send(QEvent::MouseButtonRelease, end, Qt::LeftButton, Qt::NoButton);
+}
+
+QString SpectacleCore::benchmarkClipboardInfo()
+{
+    if (latencyMode() < 0)
+        return {};
+    const QMimeData *mime = KSystemClipboard::instance()->mimeData(QClipboard::Clipboard);
+    const QImage image = mime ? qvariant_cast<QImage>(mime->imageData()) : QImage();
+    return QString::fromUtf8(
+        QJsonDocument(QJsonObject{{u"width"_s, image.width()},
+                                  {u"height"_s, image.height()},
+                                  {u"cache_key"_s, QString::number(image.cacheKey())},
+                                  {u"dpr"_s, image.devicePixelRatio()},
+                                  {u"center_rgb"_s, image.isNull() ? QString() : image.pixelColor(image.width() / 2, image.height() / 2).name()},
+                                  {u"visible_capture_windows"_s,
+                                   int(std::count_if(m_captureWindows.begin(),
+                                                     m_captureWindows.end(),
+                                                     [](const auto &w) {
+                                                         return w->isVisible();
+                                                     }))},
+                                  {u"selection_empty"_s, SelectionEditor::instance()->selection()->isEmpty()}})
+            .toJson(QJsonDocument::Compact));
+}
+
+void SpectacleCore::benchmarkReclaimMemory(bool clearImages, bool releaseGraphics, bool trimAllocator)
+{
+    if (latencyMode() < 0) {
+        return;
+    }
+    if (clearImages) {
+        QImage tiny(1, 1, QImage::Format_ARGB32_Premultiplied);
+        tiny.fill(Qt::transparent);
+        m_annotationDocument->clearAnnotations();
+        m_annotationDocument->setBaseImage(tiny);
+        m_annotationDocument->renderToImage();
+        setExportImage(QImage{});
+    }
+    if (releaseGraphics) {
+        for (const auto &window : m_captureWindows) {
+            window->setPersistentSceneGraph(false);
+            window->setPersistentGraphics(false);
+            window->releaseResources();
+        }
+    }
+    if (trimAllocator) {
+        malloc_trim(0);
+    }
+}

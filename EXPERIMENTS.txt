@@ -1,0 +1,143 @@
+SPECTACLE LATENCY EXPERIMENT — 2026-09-30
+
+Source: /home/callen/work/spectacle-experiments
+Branch: explore/low-latency-capture, based on KDE v6.7.5
+Installed package, Alt+Shift+4 launcher, and persistent service are unchanged.
+No packages were installed. Missing build-only CMake modules and protocol XMLs
+were downloaded as archives and extracted into the source tree .deps directory.
+The prototypes ran on a separate D-Bus service and private configuration directory.
+Temporary desktop metadata and KWin scripts were removed after each run.
+
+Measurement method
+------------------
+Time starts just before launching the small gdbus client, as used by the installed
+shortcut. Time ends at KWin windowAdded for the matching process. C++ timing points
+also record activation, image-ready, base-image update, QML-ready, and first frame.
+The native baseline includes invocation through KGlobalAccel. Prototypes use the
+same KDBusService CommandLine API directly, saving one small dispatch step.
+These are software timings, not the iPhone key-to-visible measurement.
+No refresh-rate, display configuration, power profile, or compositor setting changed.
+Current output: eDP-1, 2880x1800 at 120 Hz, scale 2. One active display only.
+
+Native current shortcut: median 430.2 ms, range 374.0–483.3 ms, n=6.
+
+Source variants
+---------------
+Mode 0: Instrumented stock control: idle core, recreate UI, exit
+  First 475.8 ms; repeats median 433.2 ms; range 396.7–475.1 ms; total n=6.
+Mode 1: Resident process and QML engine; recreate UI
+  First 438.6 ms; repeats median 147.6 ms; range 135.2–181.4 ms; total n=6.
+Mode 2: Precreate QML overlay while idle; recreate after each capture
+  First 161.8 ms; repeats median 121.0 ms; range 99.2–125.3 ms; total n=6.
+Mode 3: Retain entire hidden overlay across captures
+  First 154.5 ms; repeats median 64.3 ms; range 62.6–65.9 ms; total n=6.
+Mode 4: Retained full overlay, offscreen grabWindow warmup
+  First 163.2 ms; repeats median 64.0 ms; range 56.2–85.9 ms; total n=6.
+Mode 5: Retained minimal overlay, offscreen grabWindow warmup
+  First 146.2 ms; repeats median 67.9 ms; range 61.0–69.5 ms; total n=6.
+Mode 6: Retained full overlay, transparent onscreen startup frame
+  First 95.9 ms; repeats median 65.3 ms; range 60.8–90.9 ms; total n=10.
+Mode 7: Retained minimal overlay, transparent onscreen startup frame
+  First 75.5 ms; repeats median 63.5 ms; range 59.1–76.1 ms; total n=10.
+
+Findings
+--------
+Instrumented control median phase times: image ready 42.8 ms; base image ready
+49.3 ms; QML ready 330.5 ms; first frame 420.4 ms. UI creation dominates.
+Retaining the QML engine removes most repeated import/creation overhead. Retaining
+the overlay removes window/item reconstruction and repeated scene-graph startup.
+Offscreen grabWindow did not remove the first visible-frame startup penalty.
+One transparent, non-interactive onscreen frame initialized the actual display
+resources before the first user capture. This moved first capture to 80.6–95.9 ms
+in the full-UI runs. Minimal UI showed no meaningful repeated-latency advantage.
+Stock idle PSS: 90979 KiB (~89 MiB). Full retained UI: ~203 MiB after successful
+small crops, up to ~255 MiB in cancellation-heavy runs. Minimal UI: ~195–247 MiB.
+All retained variants checked used 0 CPU ticks in each 3-second idle interval.
+
+Correctness checks
+------------------
+Modes 3, 6, 7 passed three fresh RGB fixture captures with differing dimensions,
+including reverse dragging. Mouse release copied the image and hid every capture
+window. Colors and native pixel dimensions were checked through KSystemClipboard.
+Escape left the previous clipboard content unchanged. Mode 6 also retained the
+clipboard image after 15 seconds and remained alive after Qt export timers expired.
+A real resident-lifecycle issue was fixed in the experiment: QEventLoopLocker release
+otherwise auto-quit the application two seconds after clipboard export.
+The fixture originally was mispositioned; black test crops were a harness error.
+Startup focus unchanged: True.
+
+Limits / next implementation work
+---------------------------------
+This is an experimental branch, not an installable production change. Benchmark
+D-Bus methods and environment switches need removal or replacement with a proper
+resident/preload option. Screen addition/removal, fractional/mixed scaling, GUI
+transitions, recording, and crash recovery need validation before packaging.
+Retained image/UI state and renderer resource lifetime need deliberate production
+handling. The transparent warmup should have a timeout and preserve focus.
+Only one display at integer scale 2 was exercised here.
+For lower latency still, try showing a live selector while image acquisition runs,
+then freezing it and deferring export until pixels arrive; alternatively investigate
+a selector inside KWin that avoids the full CPU readback before interaction. These
+are further experiments; no latency result is claimed for either.
+
+Build command
+-------------
+cmake -S . -B build-baseline -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+  -DECM_DIR=/home/callen/work/spectacle-experiments/.deps/ecm/usr/share/ECM/cmake
+  -DCMAKE_PREFIX_PATH=/home/callen/work/spectacle-experiments/.deps/plasma-protocols/usr
+  -DBUILD_TESTING=OFF -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -march=native"
+cmake --build build-baseline -j 3
+Do not run an install target. OpenCV minimum-version checking was adjusted because
+the installed OpenCV 5 configuration rejects find_package(OpenCV 4.7).
+
+Experiment tools are in /home/callen/Documents/Codex/2026-09-29/cl/work/spectacle-shortcut.
+Raw data: prototype-results.json, prewarm-results.json, final-warmup-results.json,
+native-current-results.json, functional-results.json, measurement-summary.json.
+
+Memory follow-up — 2026-09-30
+----------------------------
+Process measurements below are PSS (proportional resident memory), in MiB.
+Shared library pages are apportioned rather than counted fully as in RSS.
+Current installed resident service is approximately 95 MiB PSS; the 200–255 MiB
+figures above describe experimental builds that keep the capture UI initialized.
+
+With no capture UI loaded, normal OCR initialization uses 88.9 MiB; suppressing
+OCR initialization uses 33.2 MiB. OcrManager eagerly initializes Tesseract from
+its constructor even in --dbus mode. This diagnostic saves about 55.7 MiB;
+a production implementation should initialize OCR on demand, preserving OCR.
+
+After five captures canceled with Escape:
+  Full retained UI, normal OCR:                         254.2 MiB
+  Minimal retained UI, normal OCR:                      246.7 MiB
+  Minimal retained UI, OCR initialization suppressed:   178.8 MiB
+  Same, after malloc_trim diagnostic:                   116.1 MiB
+  Same, after clearing CPU images and trimming:          76.6 MiB
+The next capture after image cleanup mapped in 86.8 ms in this run. These are
+individual diagnostic runs, not a production latency distribution. Successful
+crop checks from the earlier report preceded the memory-cleanup experiments;
+clipboard correctness after cleanup still needs explicit validation.
+
+Full UI also fell from 254.2 to 187.0 MiB after trimming unused allocator pages,
+then to 108.0 MiB after clearing CPU images. Thus large portions of the footprint
+are cached allocations and retained image state, not the visible controls.
+A 2880x1800 four-byte image is 19.8 MiB. AnnotationDocument also allocates a
+full-resolution transparent annotation canvas. AnnotationViewport uploads both
+base and annotation textures; base-image texture mipmaps consume extra memory.
+The simplified QML overlay still uses that same image-editor rendering backend.
+
+IMPORTANT ACCOUNTING CORRECTION: the PSS figures are not the complete rendering
+footprint. Intel xe fdinfo reports resident GTT buffers of 364.1 MiB for full UI
+and 319.9 MiB for minimal UI after the five cancellations. Of those buffers,
+66 MiB are shared (for example, shared display buffers). FD entries were deduped
+by drm-client-id and drm-pdev. CPU image cleanup/allocator trimming did not
+release these GPU buffers. Qt releaseResources also left most of them resident.
+Do not simply add GTT totals and process PSS: mappings may overlap and shared
+buffers may be attributed to other processes as well. A reduction to 76.6 MiB
+PSS must NOT be advertised as a reduction to 76.6 MiB total physical RAM.
+
+Next practical memory work: lazy OCR initialization, explicit post-capture image
+lifetime, and a clipboard-only selector that avoids AnnotationDocument's full
+editor surfaces and unnecessary GPU textures. Driver/rendering buffer retention
+needs separate investigation. No macOS memory measurement was performed.
+No packages were installed and the user's shortcut/service were unchanged.
+Raw data: memory-profile-results.json; harness: profile-memory.py.

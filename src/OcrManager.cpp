@@ -324,6 +324,11 @@ void OcrManager::beginRecognition(const QImage &image)
 
 void OcrManager::initializeTesseract()
 {
+    // Diagnostic isolation: measure the OCR model independently of capture UI.
+    // A production change would initialize OCR on demand, not remove it.
+    if (qEnvironmentVariableIsSet("SPECTACLE_LATENCY_EXPERIMENT") && qEnvironmentVariableIsSet("SPECTACLE_LATENCY_SKIP_OCR")) {
+        return;
+    }
     auto cleanupTesseract = [this]() {
         if (m_tesseract) {
             m_tesseract->End();
