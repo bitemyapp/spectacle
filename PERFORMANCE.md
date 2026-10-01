@@ -6,10 +6,11 @@ Measured on CachyOS, Plasma/KWin 6.7.5, Qt 6.11.2, Intel graphics. These are ind
 
 | Display | First mapping | Repeated mapping, median | Range, 12 captures | Idle PSS | Selecting PSS | Idle RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| 3840×2160, 240 Hz, scale 1.45 | 30.2 ms | 36.9 ms | 22.8–40.5 ms | 8.7 MiB | 72.0 MiB | 56.5 MiB |
+| 3840×2160, 240 Hz, scale 1.45, native client action | 30.0 ms | 29.6 ms | 27.5–41.8 ms | 8.9 MiB | 72.2 MiB | 57.1 MiB |
+| Same display, earlier command-dispatch run | 30.2 ms | 36.9 ms | 22.8–40.5 ms | 8.7 MiB | 72.0 MiB | 56.5 MiB |
 | Earlier 2880×1800, 120 Hz, scale 2 run | 29.4 ms | 28.2 ms | 27.2–29.4 ms | 8.5 MiB | 28.3 MiB | 56.5 MiB |
 
-The display changed between these runs; differences cannot be attributed solely to code. The final 4K run used the same production selector as the published fork. Latency starts before spawning `gdbus` and ends when KWin reports window mapping. It includes dispatch and initial software painting, but **does not measure physical key-to-photon latency**. A resident service is required to avoid cold process startup on every key press.
+The display changed between the 4K and internal-display runs; differences cannot be attributed solely to code. The final 4K run used the same production selector as the published fork. Latency starts before spawning the benchmark's `gdbus` request and ends when KWin reports window mapping. The native-action run calls the registered component's `invokeShortcut`, which signals the resident QAction; actual key presses do not spawn `gdbus`. It includes dispatch and initial software painting, but **does not measure physical key-to-photon latency**. A resident service is required to avoid cold process startup on every key press.
 
 The 4K selection buffers are temporary. They are destroyed on release or cancel. After a 3190×1740 synthetic image was copied, decoded and pasted in another Qt application, the private test process returned to approximately **12 MiB PSS**. It used **zero CPU ticks during a three-second idle sample**. The private bridge, logging and test fixture differ from the production daemon; do not treat that value as its exact idle baseline.
 
@@ -37,7 +38,7 @@ This briefly displays and cancels twelve selectors. It never takes a screenshot 
 
 ```sh
 systemctl --user stop spectacle-fast.service
-python tools/benchmark-fast.py /usr/bin/spectacle-fast --output result.json
+python tools/benchmark-fast.py /usr/bin/spectacle-fast --shortcut --output result.json
 systemctl --user start spectacle-fast.service
 ```
 
@@ -48,5 +49,7 @@ For an uninstalled build, pass `build-fast/fast/spectacle-fast`. The script temp
 The full build passed its three CTest suites: AppStream metadata, filename generation, and fast-selector geometry/clipboard formats. The selector-only build passed its Qt unit suite.
 
 Private Plasma-session validation exercised live and frozen modes, RGB fixture captures including a 3190×1740 image at fractional scale, reverse drags, keyboard focus, Escape, repeated activation, pending cancellation, PNG and Qt-image paste in a separate process, capture-time semantics, and clipboard survival after fifteen seconds of cleanup. The original clipboard was restored after testing.
+
+The first command-shortcut registration missed a dispatcher bug in KGlobalAccelD. The corrected native QAction passed 500 translated key press/release cycles, repeat suppression and five client lifetimes in an isolated dummy backend, then twelve mapping/cancellation checks through the actual registered action in the desktop session. [Crash cause, reproducer and candidate upstream patch](tools/SHORTCUT-CRASH.md).
 
 An apparent small pixel corruption was traced to the **test entry's launch-feedback icon**, not the screenshot pixels or area API. `StartupNotify=false` prevents that icon. The production entry and benchmark use it too. KWin's [activation feedback implementation](https://github.com/KDE/kwin/blob/Plasma/6.7/src/xdgactivationv1.cpp) checks this entry when issuing activation tokens. The installed service has no test input or clipboard-inspection API.

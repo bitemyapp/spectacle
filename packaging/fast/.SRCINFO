@@ -14,6 +14,7 @@ pkgbase = spectacle-fast-git
 	depends = qt6-base
 	depends = qt6-wayland
 	depends = kguiaddons
+	depends = kglobalaccel
 	optdepends = glib2: gdbus shortcut dispatch
 	optdepends = plasma-workspace: KWin screenshot interface and Klipper
 	provides = spectacle-fast

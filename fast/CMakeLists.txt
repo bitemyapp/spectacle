@@ -4,7 +4,7 @@ add_library(spectacle-fast-core STATIC FastCapture.cpp FastCapture.h)
 target_link_libraries(spectacle-fast-core PUBLIC Qt6::Gui Qt6::DBus KF6::GuiAddons)
 target_include_directories(spectacle-fast-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(spectacle-fast Main.cpp)
-target_link_libraries(spectacle-fast PRIVATE spectacle-fast-core)
+target_link_libraries(spectacle-fast PRIVATE spectacle-fast-core KF6::GlobalAccel)
 install(TARGETS spectacle-fast RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../icons/sc-apps-spectacle.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps RENAME spectacle-fast.svg)

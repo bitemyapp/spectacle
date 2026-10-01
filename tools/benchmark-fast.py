@@ -4,6 +4,7 @@ import argparse, json, os, pathlib, re, select, statistics, subprocess, time
 parser=argparse.ArgumentParser(description="Map/cancel 12 test overlays; no screenshot is taken.")
 parser.add_argument("binary", type=pathlib.Path, help="Path to spectacle-fast; stop its installed service first")
 parser.add_argument("--output", type=pathlib.Path, default=pathlib.Path("fast-benchmark-results.json"))
+parser.add_argument("--shortcut", action="store_true", help="Dispatch through the daemon's registered CaptureRegion action")
 args=parser.parse_args()
 R=pathlib.Path(__file__).resolve().parent
 B=args.binary.resolve()
@@ -47,7 +48,10 @@ try:
  print('Idle before',json.dumps(memory(proc.pid)),flush=True)
  for i in range(12):
   start=time.time_ns()/1e6
-  run('gdbus','call','--session','--dest',SERVICE,'--object-path','/org/kde/Spectacle/Fast','--method',SERVICE+'.Capture')
+  if args.shortcut:
+   run('gdbus','call','--session','--dest','org.kde.kglobalaccel','--object-path','/component/spectacle_fast','--method','org.kde.kglobalaccel.Component.invokeShortcut','CaptureRegion')
+  else:
+   run('gdbus','call','--session','--dest',SERVICE,'--object-path','/org/kde/Spectacle/Fast','--method',SERVICE+'.Capture')
   until=time.monotonic()+5;found=None
   while time.monotonic()<until:
    if not select.select([reader.stdout],[],[],.1)[0]:continue

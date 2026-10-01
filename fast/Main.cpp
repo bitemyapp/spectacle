@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "FastCapture.h"
 
+#include <KGlobalAccel>
+#include <QAction>
 #include <QCommandLineParser>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -16,7 +18,7 @@ int main(int argc, char **argv)
     QGuiApplication app(argc, argv);
     app.setApplicationName(u"spectacle-fast"_s);
     app.setOrganizationDomain(u"org.kde"_s);
-    app.setApplicationVersion(u"6.7.5-fast1"_s);
+    app.setApplicationVersion(u"6.7.5-fast2"_s);
     app.setDesktopFileName(u"org.kde.spectacle.fast"_s);
     app.setQuitOnLastWindowClosed(false);
     QCoreApplication::setQuitLockEnabled(false);
@@ -50,6 +52,21 @@ int main(int argc, char **argv)
     }
     FastCapture capture(parser.isSet(u"freeze"_s));
     bus.registerObject(u"/org/kde/Spectacle/Fast"_s, &capture, QDBusConnection::ExportAllSlots);
+    // A normal client action avoids creating/replacing desktop-service _launch
+    // actions inside KWin, and dispatches directly without a launcher process.
+    QAction regionAction(u"Copy Screenshot Region to Clipboard"_s, &capture);
+    regionAction.setObjectName(u"CaptureRegion"_s);
+    regionAction.setProperty("componentName", u"spectacle-fast"_s);
+    regionAction.setProperty("componentDisplayName", u"Spectacle Fast"_s);
+    regionAction.setAutoRepeat(false);
+    QObject::connect(&regionAction, &QAction::triggered, &capture, &FastCapture::Capture);
+    const QKeySequence defaultKey(Qt::AltModifier | Qt::Key_Dollar);
+    const bool ownsKey = KGlobalAccel::self()->globalShortcut(u"spectacle-fast"_s, regionAction.objectName()).contains(defaultKey);
+    const bool keyAvailable = ownsKey || KGlobalAccel::isGlobalShortcutAvailable(defaultKey, u"spectacle-fast"_s);
+    KGlobalAccel::setGlobalShortcut(&regionAction, keyAvailable ? defaultKey : QKeySequence());
+    if (!keyAvailable) {
+        qWarning() << "Alt+Shift+4 belongs to another action; choose a shortcut for Spectacle Fast in System Settings.";
+    }
     QObject::connect(&capture, &FastCapture::failed, &app, [](const QString &message) {
         qWarning().noquote() << message;
     });

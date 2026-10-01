@@ -7,7 +7,7 @@ pkgdesc='Minimal resident Plasma region-to-clipboard selector from the Spectacle
 arch=(x86_64 aarch64)
 url='https://github.com/bitemyapp/spectacle'
 license=(GPL-2.0-or-later)
-depends=(glibc libgcc libstdc++ qt6-base qt6-wayland kguiaddons)
+depends=(glibc libgcc libstdc++ qt6-base qt6-wayland kguiaddons kglobalaccel)
 makedepends=(cmake git)
 optdepends=('glib2: gdbus shortcut dispatch'
             'plasma-workspace: KWin screenshot interface and Klipper')

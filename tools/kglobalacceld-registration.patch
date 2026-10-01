@@ -1,0 +1,18 @@
+diff --git a/src/kglobalacceld.cpp b/src/kglobalacceld.cpp
+index 8e55a47..0c6230e 100644
+--- a/src/kglobalacceld.cpp
++++ b/src/kglobalacceld.cpp
+@@ -147,6 +147,13 @@ GlobalShortcut *KGlobalAccelDPrivate::addAction(const QStringList &actionId)
+         component->createGlobalShortcutContext(contextUnique);
+     }
+ 
++    // Creating a service component loads its desktop actions, including
++    // _launch. Reuse an action loaded during that step instead of replacing it
++    // in the context map and leaving its grabbed key orphaned.
++    if (auto *shortcut = component->getShortcutByName(actionId.at(KGlobalAccel::ActionUnique), contextUnique)) {
++        return shortcut;
++    }
++
+     Q_ASSERT(!component->getShortcutByName(componentUnique, contextUnique));
+ 
+     return new GlobalShortcut(actionId.at(KGlobalAccel::ActionUnique),
