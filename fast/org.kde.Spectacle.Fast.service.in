@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.kde.Spectacle.Fast
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/spectacle-fast --daemon
+SystemdService=spectacle-fast.service

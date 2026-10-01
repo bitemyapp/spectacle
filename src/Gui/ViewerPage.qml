@@ -61,11 +61,6 @@ EmptyPage {
                 action: CopyImageAction {}
             }
              
-            TtToolButton {
-                display: TtToolButton.IconOnly
-                visible: !SpectacleCore.videoMode && SpectacleCore.ocrAvailable
-                action: OcrAction {}
-            }
              
             // We only show this in video mode to save space in screenshot mode
             TtToolButton {

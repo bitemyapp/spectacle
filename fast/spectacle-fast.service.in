@@ -1,0 +1,16 @@
+[Unit]
+Description=Spectacle fast region-to-clipboard capture
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+StartLimitIntervalSec=10
+StartLimitBurst=10
+
+[Service]
+Type=dbus
+BusName=org.kde.Spectacle.Fast
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/spectacle-fast --daemon
+Restart=on-failure
+RestartSec=250ms
+
+[Install]
+WantedBy=graphical-session.target

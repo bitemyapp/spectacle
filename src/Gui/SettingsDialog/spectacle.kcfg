@@ -34,10 +34,6 @@
         <label>Save screenshot automatically after it is taken</label>
         <default>false</default>
     </entry>
-    <entry name="closeAfterOcr" type="Bool">
-        <label>Close after extraction (skips auto-save)</label>
-        <default>false</default>
-    </entry>
     <entry name="clipboardGroup" type="Enum">
         <label>Clipboard action which should be executed after the screenshot is taken</label>
         <choices>
@@ -72,10 +68,6 @@
         <choice name="UntilClosed"></choice>
         </choices>
         <default>UntilClosed</default>
-    </entry>
-    <entry name="ocrLanguages" type="StringList">
-        <label>Default languages for OCR text recognition</label>
-        <default>eng</default>
     </entry>
 </group>
 <group name="GuiConfig">

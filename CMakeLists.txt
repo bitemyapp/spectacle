@@ -6,6 +6,19 @@ set(SPECTACLE_VERSION ${PROJECT_VERSION})
 # Spectacle project
 project(Spectacle VERSION ${SPECTACLE_VERSION})
 
+option(SPECTACLE_FAST_ONLY "Build only the lightweight Plasma region selector" OFF)
+include(CTest)
+if(SPECTACLE_FAST_ONLY)
+    include(GNUInstallDirs)
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    find_package(Qt6 6.5 CONFIG REQUIRED COMPONENTS Core Gui DBus)
+    find_package(KF6GuiAddons REQUIRED)
+    add_subdirectory(fast)
+    return()
+endif()
+
 # minimum requirements
 set(PROJECT_DEP_VERSION "6.7.0")
 set(QT_MIN_VERSION "6.10.0")
@@ -91,7 +104,10 @@ find_package(Wayland REQUIRED COMPONENTS Client)
 find_package(PlasmaWaylandProtocols REQUIRED)
 find_package(LayerShellQt REQUIRED)
 find_package(KPipeWire)
-find_package(OpenCV 4.7 REQUIRED core imgproc)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+if(OpenCV_VERSION VERSION_LESS "4.7")
+    message(FATAL_ERROR "Spectacle requires OpenCV 4.7 or newer")
+endif()
 find_package(PkgConfig REQUIRED)
 
 set_package_properties(KPipeWire PROPERTIES DESCRIPTION
@@ -107,8 +123,6 @@ set_package_properties(KQuickImageEditor PROPERTIES
     URL "https://invent.kde.org/libraries/kquickimageeditor/"
     PURPOSE "Add image editing capability to the screenshots"
 )
-
-pkg_check_modules(TESSERACT REQUIRED IMPORTED_TARGET tesseract)
 
 # optional components
 find_package(KF6DocTools ${KF6_MIN_VERSION})
@@ -153,6 +167,7 @@ ecm_set_disabled_deprecation_versions(QT 6.11.0  KF 6.26.0)
 # hand off to subdirectories
 
 add_subdirectory(src)
+add_subdirectory(fast)
 add_subdirectory(dbus)
 add_subdirectory(desktop)
 add_subdirectory(icons)

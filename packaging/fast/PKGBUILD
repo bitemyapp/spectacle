@@ -1,0 +1,38 @@
+# Maintainer: bitemyapp <320177+bitemyapp@users.noreply.github.com>
+# Only the selector: no QML, OCR, image editor, OpenCV, or GUI build dependencies.
+pkgname=spectacle-fast-git
+pkgver=6.7.5.r1
+pkgrel=1
+pkgdesc='Minimal resident Plasma region-to-clipboard selector from the Spectacle fork'
+arch=(x86_64 aarch64)
+url='https://github.com/bitemyapp/spectacle'
+license=(GPL-2.0-or-later)
+depends=(glibc libgcc libstdc++ qt6-base qt6-wayland kguiaddons)
+makedepends=(cmake git)
+optdepends=('glib2: gdbus shortcut dispatch'
+            'plasma-workspace: KWin screenshot interface and Klipper')
+provides=(spectacle-fast)
+conflicts=(spectacle-snappy-git)
+source=("spectacle::git+$url.git#branch=fast-region")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd spectacle
+    printf '6.7.5.r%s.g%s' "$(git rev-list --count 343a0229b4cbb7961ae915629eaa687f8ef81eaa..HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cmake -S spectacle -B build -DSPECTACLE_FAST_ONLY=ON \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_TESTING=ON \
+        -DSPECTACLE_FAST_LIVE_TESTING=OFF
+    cmake --build build
+}
+
+check() {
+    ctest --test-dir build --output-on-failure
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

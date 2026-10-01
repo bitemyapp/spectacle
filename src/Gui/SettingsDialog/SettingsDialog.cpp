@@ -10,8 +10,6 @@
 
 #include "GeneralOptionsPage.h"
 #include "ImageSaveOptionsPage.h"
-#include "OcrLanguageSelector.h"
-#include "OcrManager.h"
 #include "ShortcutsOptionsPage.h"
 #include "VideoSaveOptionsPage.h"
 #include "settings.h"
@@ -41,21 +39,10 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     connect(m_shortcutsPage, &ShortcutsOptionsPage::shortCutsChanged, this, [this] {
         updateButtons();
     });
-    connect(m_generalPage, &GeneralOptionsPage::ocrLanguageChanged, this, [this] {
-        updateButtons();
-    });
     connect(this, &KConfigDialog::currentPageChanged, this, &SettingsDialog::updateButtons);
 }
 
-SettingsDialog::~SettingsDialog()
-{
-    // Ensure OCR config sync is resumed
-    if (OcrManager *ocrManager = OcrManager::instance()) {
-        if (ocrManager->isConfigSyncSuspended()) {
-            ocrManager->setConfigSyncSuspended(false);
-        }
-    }
-}
+SettingsDialog::~SettingsDialog() = default;
 
 QSize SettingsDialog::sizeHint() const
 {
@@ -80,72 +67,36 @@ void SettingsDialog::showEvent(QShowEvent *event)
     auto parent = parentWidget();
     bool onTop = parent && parent->windowHandle()->flags().testFlag(Qt::WindowStaysOnTopHint);
     windowHandle()->setFlag(Qt::WindowStaysOnTopHint, onTop);
-    
-    m_generalPage->refreshOcrLanguageSettings();
-    
+
     KConfigDialog::showEvent(event);
 }
 
 bool SettingsDialog::hasChanged()
 {
-    bool ocrHasChanges = false;
-    if (OcrManager::instance()->isAvailable()) {
-        ocrHasChanges = m_generalPage->ocrLanguageSelector()->hasChanges();
-    }
-    return m_shortcutsPage->isModified() || ocrHasChanges || KConfigDialog::hasChanged();
+    return m_shortcutsPage->isModified() || KConfigDialog::hasChanged();
 }
 
 bool SettingsDialog::isDefault()
 {
-    bool ocrIsDefault = true;
-    if (OcrManager::instance()->isAvailable()) {
-        ocrIsDefault = m_generalPage->ocrLanguageSelector()->isDefault();
-    }
-    return currentPage()->name() != i18n("Shortcuts") && ocrIsDefault && KConfigDialog::isDefault();
+    return currentPage()->name() != i18n("Shortcuts") && KConfigDialog::isDefault();
 }
 
 void SettingsDialog::updateSettings()
 {
     KConfigDialog::updateSettings();
     m_shortcutsPage->saveChanges();
-
-    if (OcrManager::instance()->isAvailable()) {
-        m_generalPage->ocrLanguageSelector()->saveSettings();
-    }
-
-    if (OcrManager *ocrManager = OcrManager::instance()) {
-        ocrManager->setConfigSyncSuspended(false);
-    }
 }
 
 void SettingsDialog::updateWidgets()
 {
     KConfigDialog::updateWidgets();
     m_shortcutsPage->resetChanges();
-
-    if (OcrManager::instance()->isAvailable()) {
-        m_generalPage->ocrLanguageSelector()->updateWidgets();
-    }
-    m_generalPage->refreshOcrLanguageSettings();
-
-    if (OcrManager *ocrManager = OcrManager::instance()) {
-        ocrManager->setConfigSyncSuspended(false);
-    }
 }
 
 void SettingsDialog::updateWidgetsDefault()
 {
-    if (OcrManager *ocrManager = OcrManager::instance()) {
-        ocrManager->setConfigSyncSuspended(true);
-    }
-
     KConfigDialog::updateWidgetsDefault();
     m_shortcutsPage->defaults();
-
-    if (OcrManager::instance()->isAvailable()) {
-        m_generalPage->ocrLanguageSelector()->applyDefaults();
-    }
-    m_generalPage->refreshOcrLanguageSettings(false);
 }
 
 #include "moc_SettingsDialog.cpp"

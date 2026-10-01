@@ -1,0 +1,24 @@
+pkgbase = spectacle-fast-git
+	pkgdesc = Minimal resident Plasma region-to-clipboard selector from the Spectacle fork
+	pkgver = 6.7.5.r1
+	pkgrel = 1
+	url = https://github.com/bitemyapp/spectacle
+	arch = x86_64
+	arch = aarch64
+	license = GPL-2.0-or-later
+	makedepends = cmake
+	makedepends = git
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = qt6-base
+	depends = qt6-wayland
+	depends = kguiaddons
+	optdepends = glib2: gdbus shortcut dispatch
+	optdepends = plasma-workspace: KWin screenshot interface and Klipper
+	provides = spectacle-fast
+	conflicts = spectacle-snappy-git
+	source = spectacle::git+https://github.com/bitemyapp/spectacle.git#branch=fast-region
+	sha256sums = SKIP
+
+pkgname = spectacle-fast-git

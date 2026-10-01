@@ -25,7 +25,6 @@ target_sources(spectacle PRIVATE
     CommandLineOptions.cpp
     ExportManager.cpp
     Geometry.cpp
-    OcrManager.cpp
     Gui/CaptureWindow.cpp
     Gui/ExportMenu.cpp
     Gui/HelpMenu.cpp
@@ -37,7 +36,6 @@ target_sources(spectacle PRIVATE
     Gui/SelectionEditor.cpp
     Gui/SettingsDialog/GeneralOptionsPage.cpp
     Gui/SettingsDialog/ImageSaveOptionsPage.cpp
-    Gui/SettingsDialog/OcrLanguageSelector.cpp
     Gui/SettingsDialog/SettingsDialog.cpp
     Gui/SettingsDialog/ShortcutsOptionsPage.cpp
     Gui/SettingsDialog/VideoFormatComboBox.cpp
@@ -129,7 +127,6 @@ target_link_libraries(spectacle PRIVATE
     LayerShellQt::Interface
     KQuickImageEditor
     ${OpenCV_LIBRARIES}
-    PkgConfig::TESSERACT
 )
 
 # qt_add_qml_module doesn't know how to deal with headers in subdirectories so
@@ -171,7 +168,6 @@ qt_target_qml_sources(spectacle
     Gui/InlineMessageList.qml
     Gui/Magnifier.qml
     Gui/NewScreenshotToolButton.qml
-    Gui/OcrAction.qml
     Gui/OptionsMenuButton.qml
     Gui/Outline.qml
     Gui/QmlUtils.qml

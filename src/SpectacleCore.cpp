@@ -12,17 +12,16 @@
 #include "ExportManager.h"
 #include "Geometry.h"
 #include "Gui/CaptureWindow.h"
+#include "Gui/InlineMessageModel.h"
 #include "Gui/Selection.h"
 #include "Gui/SelectionEditor.h"
 #include "Gui/SpectacleWindow.h"
-#include "Gui/InlineMessageModel.h"
 #include "ImageMetaData.h"
-#include "OcrManager.h"
+#include "PlasmaVersion.h"
 #include "Platforms/ImagePlatformXcb.h"
 #include "Platforms/PlatformLoader.h"
 #include "RecordingModeModel.h"
 #include "ShortcutActions.h"
-#include "PlasmaVersion.h"
 // generated
 #include "settings.h"
 
@@ -168,15 +167,6 @@ SpectacleCore::SpectacleCore(QObject *parent)
             m_annotationDocument->cropCanvas(rect);
             syncExportImage();
             auto exportActions = actions & ExportManager::AnyAction ? actions : autoExportActions();
-            if (m_ocrExportInProgress) {
-                if (Settings::closeAfterOcr()) {
-                    exportActions.setFlag(ExportManager::Action::Save, false);
-                    exportActions.setFlag(ExportManager::Action::CopyPath, false);
-                    m_quitAfterOcr = true;
-                }
-                exportActions.setFlag(ExportManager::Action::CopyImage, false);
-                m_ocrExportInProgress = false;
-            }
             const bool willQuit = exportActions.testAnyFlags(ExportManager::AnyAction) //
                 && exportActions.testFlag(ExportManager::UserAction) //
                 && Settings::quitAfterSaveCopyExport();
@@ -212,8 +202,11 @@ SpectacleCore::SpectacleCore(QObject *parent)
         SpectacleWindow::setTitleForAll(SpectacleWindow::Unsaved);
         SpectacleWindow::setVisibilityForAll(QWindow::FullScreen);
         // SelectionEditor::reset has to be delayed until after all the DPRs are correct on Wayland.
-        connect(m_captureWindows.front().get(), &CaptureWindow::allExposed, //
-                SelectionEditor::instance(), &SelectionEditor::reset, Qt::SingleShotConnection);
+        connect(m_captureWindows.front().get(),
+                &CaptureWindow::allExposed, //
+                SelectionEditor::instance(),
+                &SelectionEditor::reset,
+                Qt::SingleShotConnection);
     });
 
     // The behavior happens to be very similar right now, so we use a shared base function
@@ -442,8 +435,11 @@ SpectacleCore::SpectacleCore(QObject *parent)
         SpectacleWindow::setTitleForAll(SpectacleWindow::Unsaved);
         SpectacleWindow::setVisibilityForAll(QWindow::FullScreen);
         // SelectionEditor::reset has to be delayed until after all the DPRs are correct on Wayland.
-        connect(m_captureWindows.front().get(), &CaptureWindow::allExposed, //
-                SelectionEditor::instance(), &SelectionEditor::reset, Qt::SingleShotConnection);
+        connect(m_captureWindows.front().get(),
+                &CaptureWindow::allExposed, //
+                SelectionEditor::instance(),
+                &SelectionEditor::reset,
+                Qt::SingleShotConnection);
     });
 
     // set up the export manager
@@ -563,110 +559,6 @@ SpectacleCore::SpectacleCore(QObject *parent)
     };
     connect(exportManager, &ExportManager::qrCodeScanned, this, onQRCodeScanned);
 
-    auto onOcrTextRecognized = [this](const QString &text, const QStringList &languageCodes, bool success) {
-        if (!success) {
-            InlineMessageModel::instance()->push(InlineMessageModel::Error, i18nc("@info", "Text extraction failed"));
-            return;
-        }
-
-        if (text.isEmpty()) {
-            InlineMessageModel::instance()->push(InlineMessageModel::Copied, i18nc("@info", "No text found in the image"));
-            return;
-        }
-
-        InlineMessageModel::instance()->push(InlineMessageModel::Copied, i18nc("@info", "Text extraction completed"));
-
-        // ensure program stays alive until the notification finishes.
-        if (!m_eventLoopLocker) {
-            m_eventLoopLocker = std::make_unique<QEventLoopLocker>();
-        }
-
-        auto notification = new KNotification(u"ocrTextExtracted"_s, KNotification::CloseOnTimeout, nullptr);
-        notification->setTitle(i18nc("@info:notification title", "Text Extracted"));
-
-        notifications.append(notification);
-
-        auto ocrManager = OcrManager::instance();
-        auto languageNames = ocrManager->availableLanguagesWithNames();
-
-        QStringList displayLanguages;
-        for (const QString &code : languageCodes) {
-            QString displayName = languageNames.value(code, code);
-            if (!displayLanguages.contains(displayName)) {
-                displayLanguages.append(displayName);
-            }
-        }
-
-        QString languagesText;
-        if (displayLanguages.size() == 1) {
-            languagesText = displayLanguages.first();
-        } else if (displayLanguages.size() == 2) {
-            languagesText = i18nc("@info The variables are language names, e.g. 'English and German'", "%1 and %2", displayLanguages.at(0), displayLanguages.at(1));
-        } else {
-            languagesText = displayLanguages.join(u", "_s);
-        }
-
-        auto notificationText = xi18nc("@info:notification", "Text copied to clipboard.<nl/>Languages used: %1", languagesText);
-        notification->setText(notificationText);
-        notification->setIconName(u"document-scan"_s);
-
-        if (!text.isEmpty()) {
-            auto openEditorAction = notification->addAction(i18nc("@action:button", "Open in Text Editor"));
-            connect(openEditorAction, &KNotificationAction::activated, this, [text, notification]() {
-                // Create temporary file with extracted text
-                auto exportManager = ExportManager::instance();
-                exportManager->updateTimestamp();
-                auto timestamp = exportManager->timestamp();
-
-                QString filename = QStringLiteral("spectacle_ocr_%1.txt").arg(timestamp.toString(QStringLiteral("yyyyMMdd_HHmmss")));
-                QString templatePath = QDir::tempPath() + QStringLiteral("/") + filename;
-
-                QTemporaryFile tempFile;
-                tempFile.setFileTemplate(templatePath);
-                tempFile.setAutoRemove(false);
-
-                if (tempFile.open()) {
-                    QTextStream stream(&tempFile);
-                    stream << text;
-                    tempFile.close();
-
-                    auto job = new KIO::OpenUrlJob(QUrl::fromLocalFile(tempFile.fileName()));
-                    job->setStartupId(notification->xdgActivationToken().toUtf8());
-                    job->start();
-                }
-
-                notification->close();
-            });
-        }
-
-        auto onExpired = [this, notification] {
-            notifications.removeOne(static_cast<KNotification *>(notification));
-
-            if (notifications.empty() && m_eventLoopLocker) {
-                QTimer::singleShot(250, this, [this] {
-                    m_eventLoopLocker.reset();
-                });
-            }
-        };
-        connect(notification, &QObject::destroyed, this, onExpired);
-        // We keep the application running for a while to ensure the notification action remains available in the history.
-        // See: https://bugs.kde.org/show_bug.cgi?id=514434
-        QTimer::singleShot(180000, notification, onExpired);
-
-        notification->sendEvent();
-
-        if (m_quitAfterOcr) {
-            m_quitAfterOcr = false;
-            deleteWindows();
-        }
-    };
-
-    // Connect to OCR manager
-    connect(OcrManager::instance(), &OcrManager::textRecognized, this, onOcrTextRecognized);
-    connect(OcrManager::instance(), &OcrManager::statusChanged, this, [this](OcrManager::OcrStatus) {
-        Q_EMIT ocrStatusChanged();
-    });
-
     connect(exportManager, &ExportManager::errorMessage, this, &SpectacleCore::showErrorMessage);
 
     connect(m_annotationDocument.get(), &AnnotationDocument::repaintNeeded, m_annotationSyncTimer.get(), qOverload<>(&QTimer::start));
@@ -711,89 +603,6 @@ SpectacleCore::SpectacleCore(QObject *parent)
             m_captureWindows.erase(it);
         }
     });
-}
-
-bool SpectacleCore::ocrAvailable() const
-{
-    return OcrManager::instance()->isAvailable();
-}
-
-OcrManager::OcrStatus SpectacleCore::ocrStatus() const
-{
-    return OcrManager::instance()->status();
-}
-
-QVariantMap SpectacleCore::ocrAvailableLanguages() const
-{
-    auto ocrManager = OcrManager::instance();
-    if (!ocrManager->isAvailable()) {
-        return QVariantMap();
-    }
-
-    auto languageMap = ocrManager->availableLanguagesWithNames();
-    QVariantMap result;
-    for (auto it = languageMap.constBegin(); it != languageMap.constEnd(); ++it) {
-        result[it.key()] = it.value();
-    }
-    return result;
-}
-
-bool SpectacleCore::startOcrExtraction(const QString &languageCode)
-{
-    if (m_videoMode) {
-        return false;
-    }
-
-    const bool hasCaptureWindows = !CaptureWindow::instances().isEmpty();
-
-    if (hasCaptureWindows) {
-        auto selectionEditor = SelectionEditor::instance();
-        auto inlineMessages = InlineMessageModel::instance();
-
-        m_ocrExportInProgress = true;
-        if (!selectionEditor->acceptSelection(ExportManager::UserAction)) {
-            m_ocrExportInProgress = false;
-            inlineMessages->push(InlineMessageModel::Error, i18nc("@info", "Please select a region before extracting text"));
-            return false;
-        }
-
-        QMetaObject::invokeMethod(
-            this,
-            [this, languageCode]() {
-                performOcrExtraction(languageCode);
-            },
-            Qt::QueuedConnection);
-        return true;
-    }
-
-    return performOcrExtraction(languageCode);
-}
-
-bool SpectacleCore::performOcrExtraction(const QString &languageCode)
-{
-    auto ocrManager = OcrManager::instance();
-    auto inlineMessages = InlineMessageModel::instance();
-
-    if (!ocrManager->isAvailable()) {
-        inlineMessages->push(InlineMessageModel::Error, i18nc("@info", "OCR is not available."));
-        return false;
-    }
-
-    const QImage image = m_annotationDocument->renderToImage();
-    if (image.isNull()) {
-        inlineMessages->push(InlineMessageModel::Error, i18nc("@info", "No screenshot available."));
-        return false;
-    }
-
-    inlineMessages->push(InlineMessageModel::Copied, i18nc("@info", "Extracting text from image..."));
-
-    if (languageCode.isEmpty()) {
-        ocrManager->recognizeText(image);
-    } else {
-        ocrManager->recognizeTextWithLanguage(image, languageCode);
-    }
-
-    return true;
 }
 
 SpectacleCore::~SpectacleCore() noexcept

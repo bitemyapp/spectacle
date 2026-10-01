@@ -1,42 +1,100 @@
-# <img src="logo.png" width="48"/> Spectacle - The KDE Screenshot Utility
+# Spectacle, with a fast region-to-clipboard selector
 
-Spectacle is a screenshot taking utility for the KDE desktop. Spectacle
-can also be used in non-KDE X11 desktop environments.
+Public fork of [KDE Spectacle](https://invent.kde.org/plasma/spectacle), based on Plasma **6.7.5**. This fork removes OCR and adds `spectacle-fast`, a small resident selector for **Plasma Wayland**.
 
-![Screenshot of Spectacle](https://cdn.kde.org/screenshots/spectacle/spectacle.png)
+Press **Alt+Shift+4**, drag a rectangle, and release to copy the image. Escape or right-click cancels. The selector has a crosshair, dimming outside the selection, and a thin outline. No toolbar, confirmation, editor, notification, or file save is involved.
 
-## Get help
-You can get help in :
-* Forum: https://discuss.kde.org/tag/spectacle
-* Matrix: https://matrix.to/#/#kde:kde.org
-* IRC: irc://irc.libera.chat/kde
-## Contributing
+## What changed
 
-Spectacle is developed under the KDE umbrella and uses KDE infrastructure
-for development.
+- OCR code, actions, settings, language scanning, and the Tesseract build dependency are removed from Spectacle.
+- The fast path uses Qt raster windows and KWin's screenshot API. It never initializes SpectacleCore, QML, the annotation editor, OpenCV, or an application-owned OpenGL scene.
+- On KWin ScreenShot2 API v5, selection appears before a screenshot is taken. Only the selected area is captured on release, with the selector excluded by KWin. The desktop stays live during selection.
+- `--freeze` captures the desktop before selection. Older screenshot API versions automatically use this mode; it costs more startup time and memory.
+- Selection buffers and native windows are released on mouse release; screenshots are discarded after copy/cancel. On glibc, unused heap is yielded after asynchronous cleanup.
+- The clipboard owner retains one PNG and decodes a QImage on demand. It stays alive so the image can be pasted later. Klipper can keep its own history independently.
 
-Please see the file [`CONTRIBUTING`](./CONTRIBUTING.md) for details on coding style and how
-to contribute patches. Please note that pull requests on GitHub aren't
-supported. The recommended way of contributing patches is via KDE's
-instance of GitLab at https://invent.kde.org/plasma/spectacle.
+The regular Spectacle UI, annotations, recording, and X11 support remain available through `spectacle`. The fast selector targets Plasma Wayland and does not provide annotations, OCR, region adjustment after release, or screen recording.
 
-When building Spectacle yourself (including when using kde-builder), you may
-find that Spectacle is not authorized to take screenshots or recordings with
-your system's installed KWin. To work around this, you can either also build
-KWin from source, or use the `KWIN_SCREENSHOT_NO_PERMISSION_CHECKS=1`/\
-`KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` environment variables in your session.
+## Arch Linux / CachyOS
 
-## Release Schedule
+Two PKGBUILDs are included. **Choose one**:
 
-Spectacle is released by KDE's release service and has three
-major releases every year. They are numbered YY.MM, where YY is the two-
-digit year and MM is the two-digit month. Major releases are made in April,
-August and December every year. The Spectacle version follows the KDE
-release service version.
+### Full OCR-free fork
 
-## Reporting Bugs
+Replaces the distribution's `spectacle` package and includes the fast selector:
 
-Please report bugs at KDE's Bugzilla, available at https://bugs.kde.org/.
+```sh
+git clone --branch fast-region https://github.com/bitemyapp/spectacle.git
+cd spectacle
+makepkg -si
+spectacle-fast-setup
+```
 
-For discussions, the `#kde-devel` IRC channel and the kde-devel mailing list
-are good places to post.
+### Selector only
+
+Coexists with the distribution's Spectacle. This does **not** remove OCR from the distribution's binary:
+
+```sh
+git clone --branch fast-region https://github.com/bitemyapp/spectacle.git
+cd spectacle/packaging/fast
+makepkg -si
+spectacle-fast-setup
+```
+
+Both packages build from this fork's `fast-region` branch and run geometry/clipboard-format tests. They are VCS packages: rebuild to receive changes. They are not published to the AUR. This is a community fork, not a KDE or Arch release.
+
+Run setup as your desktop user. It enables `spectacle-fast.service`, creates a launcher, and registers **Alt+$**, KDE's representation of physical **Alt+Shift+4** on a US layout. Existing launcher contents are backed up before replacement; another action's shortcut is not overwritten. For a different layout, set your preferred key in System Settings → Keyboard → Shortcuts.
+
+If you previously enabled the full Spectacle service solely for warm screenshots, disable that preload to avoid keeping both processes resident:
+
+```sh
+systemctl --user disable --now app-org.kde.spectacle.service
+```
+
+Do this only if you enabled that preload yourself. Print Screen can still launch the regular application when needed.
+
+## Build without a package
+
+The selector alone needs a C++20 compiler, CMake, Qt 6 Core/Gui/DBus/Test, KF6 GuiAddons, and the Qt Wayland platform plugin:
+
+```sh
+cmake -S . -B build-fast -DSPECTACLE_FAST_ONLY=ON \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.local" \
+  -DBUILD_TESTING=ON
+cmake --build build-fast --parallel
+ctest --test-dir build-fast --output-on-failure
+cmake --install build-fast
+"$HOME/.local/bin/spectacle-fast-setup"
+```
+
+For the full application, omit `SPECTACLE_FAST_ONLY` and install the build dependencies listed in the root PKGBUILD. OpenCV 4.7 or newer is supported, including OpenCV 5. A local installation can coexist with a distribution package; it does not replace that package in pacman's database.
+
+KWin authorizes the installed executable through `org.kde.spectacle.fast.desktop`. Rebuild the KDE service cache after installing or moving the executable:
+
+```sh
+kbuildsycoca6 --noincremental
+```
+
+No KWin permission checks need to be disabled.
+
+## Commands
+
+```sh
+spectacle-fast           # activate the resident instance, or start and capture
+spectacle-fast --daemon  # start without showing selection
+spectacle-fast --freeze  # start a new instance in frozen-desktop mode
+
+gdbus call --session --dest org.kde.Spectacle.Fast \
+  --object-path /org/kde/Spectacle/Fast \
+  --method org.kde.Spectacle.Fast.Capture
+```
+
+Mode is chosen when the resident process starts. To use frozen mode with the service, override its ExecStart, clear the previous ExecStart first, and restart the service. A repeated Capture while selection is active cancels it; it does not start overlapping capture operations.
+
+## Measurements and validation
+
+See [PERFORMANCE.md](PERFORMANCE.md) for methodology and limits. Results are software timings to KWin window mapping, **not** physical key-to-photon measurements. Try the shortcut and use an external camera for that measurement.
+
+Unit tests cover native/fractional scale crops, reverse drags, negative monitor origins, mixed scales, transparent display gaps, and PNG/Qt clipboard formats. An optional private bridge, `SPECTACLE_FAST_LIVE_TESTING=ON`, supports synthetic mouse/key and clipboard checks in a real Plasma session. It is never installed by either package. The installed D-Bus interface exposes only Capture, Cancel, and State.
+
+Report fork issues at [this repository](https://github.com/bitemyapp/spectacle/issues). Upstream project information is preserved in [README.upstream.md](README.upstream.md). Existing KDE copyright notices and licenses are retained.

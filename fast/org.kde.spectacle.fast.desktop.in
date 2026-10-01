@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Spectacle Fast Region to Clipboard
+Comment=Select a rectangle and copy it on release; Escape cancels
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/spectacle-fast
+Icon=spectacle-fast
+Categories=Qt;KDE;Utility;
+StartupNotify=false
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+X-KDE-Wayland-Interfaces=org_kde_plasma_window_management
