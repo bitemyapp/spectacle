@@ -43,7 +43,7 @@ spectacle-fast-setup
 
 Both packages build from this fork's `fast-region` branch and run geometry/clipboard-format tests. They are VCS packages: rebuild to receive changes. They are not published to the AUR. This is a community fork, not a KDE or Arch release.
 
-Run setup as your desktop user. It enables `spectacle-fast.service`, creates a launcher, and registers **Alt+$**, KDE's representation of physical **Alt+Shift+4** on a US layout. Existing launcher contents are backed up before replacement; another action's shortcut is not overwritten. For a different layout, set your preferred key in System Settings → Keyboard → Shortcuts.
+Run setup as your desktop user. It enables `spectacle-fast.service`, creates a launcher, and registers **Alt+$**, KDE's representation of physical **Alt+Shift+4** on a US layout. Existing launcher contents are backed up before replacement; another action's shortcut is not overwritten. It migrates the earlier `spectacle-region-clipboard.desktop` action when that action owns this key, using a new identity to avoid KWin's cached launcher command. No logout is needed. For a different layout, set your preferred key in System Settings → Keyboard → Shortcuts.
 
 If you previously enabled the full Spectacle service solely for warm screenshots, disable that preload to avoid keeping both processes resident:
 
