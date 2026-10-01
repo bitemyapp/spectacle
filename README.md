@@ -57,7 +57,7 @@ Do this only if you enabled that preload yourself. Print Screen can still launch
 
 ## Build without a package
 
-The selector alone needs a C++20 compiler, CMake, Qt 6 Core/Gui/DBus/Test, KF6 GuiAddons, and the Qt Wayland platform plugin:
+The selector alone needs a C++20 compiler, CMake, Qt 6 Core/Gui/DBus/Test, KF6 GuiAddons and GlobalAccel, and the Qt Wayland platform plugin:
 
 ```sh
 cmake -S . -B build-fast -DSPECTACLE_FAST_ONLY=ON \
