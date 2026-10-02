@@ -1,0 +1,136 @@
+From 5b889e8b8b07e10ff29ae9460f58edf3dbdf62de Mon Sep 17 00:00:00 2001
+From: Chris Allen <cma@bitemyapp.com>
+Date: Thu, 1 Oct 2026 20:41:01 -0500
+Subject: [PATCH] Reuse desktop actions loaded during component creation
+
+Creating a service component can register the requested action before
+addAction() creates it. Reuse that action to preserve its shortcuts and
+avoid leaving an orphaned key registration after removal.
+
+Add regression coverage for application launch and named desktop actions,
+including repeated registration and key release after component removal.
+---
+ autotests/shortcutstest.cpp | 65 +++++++++++++++++++++++++++++++++++++
+ src/kglobalacceld.cpp       |  6 +++-
+ 2 files changed, 70 insertions(+), 1 deletion(-)
+
+diff --git a/autotests/shortcutstest.cpp b/autotests/shortcutstest.cpp
+index 12ffdfa..bc9ca1f 100644
+--- a/autotests/shortcutstest.cpp
++++ b/autotests/shortcutstest.cpp
+@@ -1,5 +1,6 @@
+ /*
+     SPDX-FileCopyrightText: 2024 Yifan Zhu <fanzhuyifan@gmail.com>
++    SPDX-FileCopyrightText: 2026 Chris Allen <cma@bitemyapp.com>
+ 
+     SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+@@ -9,10 +10,13 @@
+ #include "component.h"
+ #include "kglobalacceld.h"
+ 
++#include <QDir>
+ #include <QFile>
++#include <QFileInfo>
+ #include <QPluginLoader>
+ #include <QSignalSpy>
+ #include <QStandardPaths>
++#include <QTemporaryFile>
+ 
+ class ShortcutsTest : public QObject
+ {
+@@ -28,6 +32,8 @@ private Q_SLOTS:
+     void testBacktab();
+     void testEmptyShortcut_data();
+     void testEmptyShortcut();
++    void testDesktopActionRegistration_data();
++    void testDesktopActionRegistration();
+ 
+ private:
+     void sendKeyCombination(QKeyCombination keyCombination, ShortcutKeyState state);
+@@ -360,6 +366,65 @@ void ShortcutsTest::testEmptyShortcut()
+     m_globalaccel->removeAllShortcuts(action.get());
+ }
+ 
++void ShortcutsTest::testDesktopActionRegistration_data()
++{
++    QTest::addColumn<QString>("actionName");
++
++    QTest::addRow("application launch") << QStringLiteral("_launch");
++    QTest::addRow("desktop action") << QStringLiteral("TestAction");
++}
++
++void ShortcutsTest::testDesktopActionRegistration()
++{
++    QFETCH(QString, actionName);
++
++    const QString directory = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/kglobalaccel");
++    QVERIFY(QDir().mkpath(directory));
++    QTemporaryFile desktopFile(directory + QStringLiteral("/registration-XXXXXX.desktop"));
++    QVERIFY(desktopFile.open());
++
++    QByteArray contents =
++        "[Desktop Entry]\n"
++        "Type=Application\n"
++        "Name=Registration Test\n"
++        "Exec=/usr/bin/true\n"
++        "X-KDE-Shortcuts=Alt+F12\n";
++    if (actionName != QLatin1String("_launch")) {
++        contents +=
++            "X-KDE-GlobalShortcutType=Service\n"
++            "Actions=TestAction;\n"
++            "\n[Desktop Action TestAction]\n"
++            "Name=Test Action\n"
++            "Exec=/usr/bin/true\n"
++            "X-KDE-Shortcuts=Alt+F12\n";
++    }
++    QCOMPARE(desktopFile.write(contents), contents.size());
++    desktopFile.close();
++
++    const QString componentName = QFileInfo(desktopFile.fileName()).fileName();
++    const QStringList actionId{componentName, actionName, QStringLiteral("Registration Test"), QStringLiteral("Test Action")};
++    const QKeySequence shortcut(Qt::AltModifier | Qt::Key_F12);
++    const QSet<QKeySequence> keys{shortcut};
++
++    // The component must first be created by doRegister(), which loads the
++    // desktop action and its keys before addAction() returns.
++    m_globalacceld->doRegister(actionId);
++    QCOMPARE(m_globalacceld->shortcutKeys(actionId), keys);
++    QCOMPARE(m_globalacceld->defaultShortcutKeys(actionId), keys);
++    m_globalacceld->doRegister(actionId);
++    QCOMPARE(m_globalacceld->allActionsForComponent(actionId).size(), 1);
++    QCOMPARE(m_globalacceld->shortcutKeys(actionId), keys);
++
++    const QDBusObjectPath componentPath = m_globalacceld->getComponent(componentName);
++    QVERIFY(m_globalacceld->unregister(componentName, actionName));
++    QTRY_VERIFY(!m_globalacceld->allComponents().contains(componentPath));
++
++    // Removing the component must also release its keys. An orphaned action
++    // here would reference the destroyed context when the key is pressed.
++    QVERIFY(!m_globalacceld->keyEvent(shortcut[0].toCombined(), ShortcutKeyState::Pressed));
++    m_globalacceld->keyEvent(shortcut[0].toCombined(), ShortcutKeyState::Released);
++}
++
+ QTEST_MAIN(ShortcutsTest)
+ 
+ #include "shortcutstest.moc"
+diff --git a/src/kglobalacceld.cpp b/src/kglobalacceld.cpp
+index 6257940..69710e3 100644
+--- a/src/kglobalacceld.cpp
++++ b/src/kglobalacceld.cpp
+@@ -143,7 +143,11 @@ GlobalShortcut *KGlobalAccelDPrivate::addAction(const QStringList &actionId)
+         component->createGlobalShortcutContext(contextUnique);
+     }
+ 
+-    Q_ASSERT(!component->getShortcutByName(componentUnique, contextUnique));
++    // Creating a service component loads and registers its desktop actions.
++    // Reuse an action loaded there instead of replacing it and orphaning its keys.
++    if (auto *shortcut = component->getShortcutByName(actionId.at(KGlobalAccel::ActionUnique), contextUnique)) {
++        return shortcut;
++    }
+ 
+     return new GlobalShortcut(actionId.at(KGlobalAccel::ActionUnique),
+                               actionId.at(KGlobalAccel::ActionFriendly),
+-- 
+2.55.0
+

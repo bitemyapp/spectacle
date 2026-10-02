@@ -1,0 +1,2 @@
+# Mail patches require single-space context lines and the '-- ' signature.
+*.patch -whitespace

@@ -41,6 +41,11 @@ An independent [candidate upstream patch](kglobalacceld-registration.patch)
 reuses an action loaded during component creation. It is included for review;
 the Spectacle package does not install or modify KWin or KGlobalAccelD.
 
+The [current-master patch archive](upstream/README.md) preserves the rebuilt
+upstream branch and its integrated regression tests. Use that archive to
+reconstruct or submit the fix against upstream master; the diagnostic patch
+above remains specific to v6.7.5.
+
 ## Isolated reproduction and regression checks
 
 [shortcut-registration-probe.cpp](shortcut-registration-probe.cpp) uses KDE's

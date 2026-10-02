@@ -2,6 +2,11 @@
 
 Public fork of [KDE Spectacle](https://invent.kde.org/plasma/spectacle), based on Plasma **6.7.5**. This fork removes OCR and adds `spectacle-fast`, a small resident selector for **Plasma Wayland**.
 
+For the rest of the Arch/CachyOS desktop restore, see the dotfiles repository's
+[recovery guide](https://github.com/bitemyapp/dotfiles/blob/arch-idempotent-shells/.install/RECOVERY.md).
+The [upstream patch archive](tools/upstream/README.md) also preserves the current-master
+KGlobalAccelD fix and its regression tests on GitHub.
+
 Press **Alt+Shift+4**, drag a rectangle, and release to copy the image. Escape or right-click cancels. The selector has a crosshair, dimming outside the selection, and a thin outline. No toolbar, confirmation, editor, notification, or file save is involved.
 
 ## What changed
